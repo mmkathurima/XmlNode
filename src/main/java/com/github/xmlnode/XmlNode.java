@@ -369,7 +369,7 @@ public class XmlNode extends ObjectNode {
                     .writerWithDefaultPrettyPrinter()
                     .writeValueAsString(this);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            return super.toPrettyString();
         }
     }
 
@@ -378,7 +378,7 @@ public class XmlNode extends ObjectNode {
         try {
             return XmlMapper.xmlBuilder().findAndAddModules().build().writeValueAsString(this);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            return super.toString();
         }
     }
 

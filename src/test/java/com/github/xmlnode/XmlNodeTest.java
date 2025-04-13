@@ -1,5 +1,6 @@
 package com.github.xmlnode;
 
+import com.ctc.wstx.stax.WstxInputFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.util.RawValue;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -87,10 +88,10 @@ public class XmlNodeTest {
     }
 
     private static XmlMapper getXmlMapper() {
-        XMLInputFactory factory = XMLInputFactory.newInstance();
-        factory.setProperty(XMLInputFactory2.P_REPORT_CDATA, Boolean.TRUE);
-        factory.setProperty(XMLInputFactory2.IS_COALESCING, Boolean.FALSE);
-        XmlMapper xmlMapper = new XmlMapper(factory);
+        XMLInputFactory xmlInputFactory = new WstxInputFactory();
+        xmlInputFactory.setProperty(XMLInputFactory2.P_REPORT_CDATA, Boolean.TRUE);
+        xmlInputFactory.setProperty(XMLInputFactory2.IS_COALESCING, Boolean.FALSE);
+        XmlMapper xmlMapper = new XmlMapper(xmlInputFactory);
         xmlMapper.findAndRegisterModules();
         //xmlMapper.enable(ToXmlGenerator.Feature.WRITE_XML_DECLARATION);
         xmlMapper.registerModule(new XmlNodeModule());
