@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.POJONode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.fasterxml.jackson.databind.util.RawValue;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -34,7 +35,8 @@ public class XmlNode extends ObjectNode {
 
     public XmlNode(JsonNodeFactory nc, Map<String, JsonNode> children) {
         super(nc);
-        this._children = children.entrySet().stream()
+        this._children = children.entrySet()
+                .stream()
                 .map(kv -> new ChildNode(kv.getKey(), kv.getValue()))
                 .collect(Collectors.toList());
     }
@@ -639,27 +641,27 @@ public class XmlNode extends ObjectNode {
             for (ChildNode entry : this._children) {
                 String fieldName = entry.getAttributeName();
                 JsonNode entryNode = entry.getNode();
-                if (entryNode instanceof XmlNode) {
-                    if (!entry.isValueNode()) {
-                        Map.Entry<String, List<String>> prefixEntry = this._namespacePrefixElementMapping.entrySet()
-                                .stream()
-                                .filter(e -> e.getValue().contains(fieldName))
-                                .findFirst()
-                                .orElse(null);
-                        if (prefixEntry != null && !prefixEntry.getKey().trim().isEmpty()) {
-                            //System.out.printf("Writing field %s:%s\n", prefixEntry.getKey(), fieldName);
-                            xmlGenerator.writeFieldName(String.format("%s:%s", prefixEntry.getKey(), fieldName));
-                        } else {
-                            //System.out.printf("Writing field name: %s\n", fieldName);
-                            xmlGenerator.writeFieldName(fieldName);
-                        }
-                        entryNode.serialize(xmlGenerator, provider); // Let child nodes handle their own serialization
+                if (entryNode instanceof XmlNode || entryNode instanceof POJONode) {
+                    Map.Entry<String, List<String>> prefixEntry = this._namespacePrefixElementMapping.entrySet()
+                            .stream()
+                            .filter(e -> e.getValue().contains(fieldName))
+                            .findFirst()
+                            .orElse(null);
+                    if (prefixEntry != null && !prefixEntry.getKey().trim().isEmpty()) {
+                        //System.out.printf("Writing field %s:%s\n", prefixEntry.getKey(), fieldName);
+                        xmlGenerator.writeFieldName(String.format("%s:%s", prefixEntry.getKey(), fieldName));
+                    } else {
+                        //System.out.printf("Writing field name: %s\n", fieldName);
+                        xmlGenerator.writeFieldName(fieldName);
                     }
+                    entryNode.serialize(xmlGenerator, provider); // Let child nodes handle their own serialization
                     // Write text content of the current node (if any)
                 } else {
                     xmlGenerator.setNextIsUnwrapped(true);
                     xmlGenerator.writeFieldName(""); // Key change: empty field name for text
-                    xmlGenerator.writeObject(entryNode);
+                    if (entryNode instanceof CDATANode)
+                        xmlGenerator.writeRaw(entryNode.asText());
+                    else xmlGenerator.writeObject(entryNode);
                     //System.out.printf("Writing value %s\n", this._value.asText());
                     xmlGenerator.setNextIsUnwrapped(false);
                 }
@@ -677,7 +679,7 @@ public class XmlNode extends ObjectNode {
             if (p instanceof FromXmlParser) {
                 Deque<XmlNode> nodeStack = new ArrayDeque<>();
                 XMLStreamReader reader = ((FromXmlParser) p).getStaxReader();
-                String rootName = reader.getLocalName();
+                String rootName = reader.getLocalName(), text;
                 //System.out.printf("%s is standalone: %s%n", rootName, reader.isStandalone());
                 try {
                     nodeStack.push(xmlNode);
@@ -718,11 +720,19 @@ public class XmlNode extends ObjectNode {
                                 break;
                             case XMLStreamConstants.END_ELEMENT:
                                 //System.out.printf("End %s%n", reader.getName());
-                                nodeStack.pop();
+                                if (!nodeStack.isEmpty())
+                                    nodeStack.pop();
+                                break;
+                            case XMLStreamConstants.CDATA:
+                                text = reader.getText().trim();
+                                if (!text.isEmpty()) {
+                                    XmlNode currentNode = nodeStack.peek();
+                                    currentNode.setValue(new CDATANode(String.format("<![CDATA[%s]]>", text)));
+                                }
                                 break;
                             case XMLStreamConstants.CHARACTERS:
                             case XMLStreamConstants.SPACE:
-                                String text = reader.getText().trim();
+                                text = reader.getText().trim();
                                 if (!text.isEmpty()) {
                                     //System.out.printf("text: %s%n", text);
                                     XmlNode currentNode = nodeStack.peek();

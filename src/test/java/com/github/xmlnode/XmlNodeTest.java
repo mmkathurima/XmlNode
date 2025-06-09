@@ -2,8 +2,8 @@ package com.github.xmlnode;
 
 import com.ctc.wstx.stax.WstxInputFactory;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.util.RawValue;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.fasterxml.jackson.dataformat.xml.deser.FromXmlParser;
 import com.fasterxml.jackson.dataformat.xml.ser.ToXmlGenerator;
 import org.codehaus.stax2.XMLInputFactory2;
 import org.junit.jupiter.api.Test;
@@ -12,6 +12,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+import java.io.IOException;
+import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -88,10 +92,7 @@ public class XmlNodeTest {
     }
 
     private static XmlMapper getXmlMapper() {
-        XMLInputFactory xmlInputFactory = new WstxInputFactory();
-        xmlInputFactory.setProperty(XMLInputFactory2.P_REPORT_CDATA, Boolean.TRUE);
-        xmlInputFactory.setProperty(XMLInputFactory2.IS_COALESCING, Boolean.FALSE);
-        XmlMapper xmlMapper = new XmlMapper(xmlInputFactory);
+        XmlMapper xmlMapper = new XmlMapper();
         xmlMapper.findAndRegisterModules();
         //xmlMapper.enable(ToXmlGenerator.Feature.WRITE_XML_DECLARATION);
         xmlMapper.registerModule(new XmlNodeModule());
@@ -100,11 +101,19 @@ public class XmlNodeTest {
 
     @ParameterizedTest
     @MethodSource(value = "getParameters")
-    public void testDeserializationSerialization(String inputXml, String rootName) throws JsonProcessingException {
-        XmlNode node = xmlMapper.readValue(inputXml, XmlNode.class);
-        String outputXml = getXmlMapper().writer().withRootName(rootName).writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
-        assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
+    public void testDeserializationSerialization(String inputXml, String rootName) throws IOException, XMLStreamException {
+        try (StringReader reader = new StringReader(inputXml)) {
+            XMLInputFactory xmlInputFactory = new WstxInputFactory();
+            xmlInputFactory.setProperty(XMLInputFactory2.P_REPORT_CDATA, Boolean.TRUE);
+            xmlInputFactory.setProperty(XMLInputFactory2.IS_COALESCING, Boolean.FALSE);
+            XMLStreamReader streamReader = xmlInputFactory.createXMLStreamReader(reader);
+            try (FromXmlParser parser = xmlMapper.getFactory().createParser(streamReader)) {
+                XmlNode node = xmlMapper.readValue(parser, XmlNode.class);
+                String outputXml = getXmlMapper().writer().withRootName(rootName).writeValueAsString(node);
+                System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
+                assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
+            }
+        }
     }
 
     public static Stream<Arguments> getParameters() {
@@ -126,7 +135,7 @@ public class XmlNodeTest {
                         "  </level1>\n" +
                         "</root>", "root"),
                 Arguments.argumentSet(
-                        "Special characters", "<content attr=\"A &amp; B\">&lt;Hello&gt;</content>",
+                        "Special characters", "<content attr=\"A &amp; B\">&lt;Hello&gt; Bob &amp; Alice</content>",
                         "content"
                 ),
                 Arguments.argumentSet("Empty element", "<empty/>", "empty"),
@@ -232,7 +241,16 @@ public class XmlNodeTest {
                         "    </parent>\n" +
                         "</root>", "root"),
                 Arguments.argumentSet("Element with CDATA section",
-                        "<data><![CDATA[Some <CDATA> content]]></data>", "data")
+                        "<data><![CDATA[Some <CDATA> &gt;< content]]></data>", "data"),
+                Arguments.argumentSet("Namespaces, children and mixed content",
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                                "<parent xmlns:ns1=\"http://example.com/weather\">Parent node\n" +
+                                "  <level1>Testing\n" +
+                                "    <ns1:level2 attr=\"A\">\n" +
+                                "      <level3>Text</level3>\n" +
+                                "    </ns1:level2>Children\n" +
+                                "  </level1>\n" +
+                                "</parent>", "parent")
         );
     }
 
@@ -302,10 +320,10 @@ public class XmlNodeTest {
 
     @Test
     public void testBuildingSpecialCharacters() throws JsonProcessingException {
-        String inputXml = "<content attr=\"A &amp; B\">&lt;Hello&gt;</content>";
+        String inputXml = "<content attr=\"A &amp; B\">&lt;Hello&gt; Bob &amp; Alice</content>";
         XmlNode node = new XmlNode(xmlMapper.getNodeFactory());
         node.putAttribute("attr", "A & B");
-        node.setValue("<Hello>");
+        node.setValue("<Hello> Bob & Alice");
         String outputXml = getXmlMapper().writer().withRootName("content").writeValueAsString(node);
         System.out.printf("%s%n%n%s%n%n%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
@@ -390,7 +408,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
     }
 
@@ -426,7 +444,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
     }
 
@@ -466,7 +484,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
     }
 
@@ -505,7 +523,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
     }
 
@@ -531,7 +549,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
     }
 
@@ -555,7 +573,7 @@ public class XmlNodeTest {
                 .withDefaultPrettyPrinter()
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
     }
 
@@ -582,7 +600,7 @@ public class XmlNodeTest {
                 .with(ToXmlGenerator.Feature.WRITE_XML_DECLARATION)
                 .withDefaultPrettyPrinter()
                 .writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
     }
 
@@ -615,7 +633,7 @@ public class XmlNodeTest {
         pig.putAttribute("age", 4);
         pig.setValue("oink oink!");
         String outputXml = getXmlMapper().writer().withRootName("animal").withDefaultPrettyPrinter().writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
     }
 
@@ -635,18 +653,18 @@ public class XmlNodeTest {
         subchild.setValue("Subchild text");
         child.setValue("More text");
         String outputXml = getXmlMapper().writer().withRootName("root").withDefaultPrettyPrinter().writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).ignoreWhitespace().areIdentical();
     }
 
 
     @Test
     public void testElementWithCDATASection() throws JsonProcessingException {
-        String inputXml = "<data><![CDATA[Some <CDATA> content]]></data>";
+        String inputXml = "<data><![CDATA[Some <CDATA> &gt;< content]]></data>";
         XmlNode node = new XmlNode(xmlMapper.getNodeFactory());
-        node.setValue(new RawValue("<![CDATA[Some <CDATA> content]]>"));
+        node.setValue(new CDATANode("<![CDATA[Some <CDATA> &gt;< content]]>"));
         String outputXml = getXmlMapper().writer().withRootName("data").withDefaultPrettyPrinter().writeValueAsString(node);
-        System.out.printf("%s%n%s%n%n", inputXml, outputXml);
+        System.out.printf("%s%n%n%s%n%n", inputXml, outputXml);
         assertThat(outputXml).and(inputXml).areIdentical();
     }
 }
